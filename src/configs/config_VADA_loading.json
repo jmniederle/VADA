@@ -1,0 +1,26 @@
+{
+"model": {
+    "name": "VADA",
+    "args": {
+      "y_emb_dim": 64,
+      "x_pred_size": 16,
+      "h_dim": 64,
+      "z_dim": 32,
+      "teacher_forcing_ratio": 1.0,
+      "beta_kl_y": 0.05,
+      "beta_reconstr": 100.0,
+      "beta_aux": 3.0,
+      "activation": "LeakyReLU",
+      "n_layers_prior":  2,
+      "n_blocks_encoder": 2,
+      "n_blocks_decoder": 2,
+      "n_layers_auxiliary": 2,
+      "use_s_1_filter_decoder": true,
+      "use_s_1_filter_encoder": true,
+      "norm": true
+    }
+  },
+
+  "resume_checkpoint_path": "src/checkpoints/jumping-snowball-276/jumping-snowball-276-139999.pth"
+
+}
