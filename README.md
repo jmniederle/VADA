@@ -1,5 +1,7 @@
 # VADA
 
+Code for the paper: "VADA: a Data-Driven Simulator for Nanopore Sequencing"
+
 Create conda environment using:
 ```
 conda create --name vada_env --file vada_requirements.txt
