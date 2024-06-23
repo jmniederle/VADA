@@ -14,6 +14,13 @@ To see an example of loss computation, sampling and generate an example plot, ru
 python VADA_demo.py 
 ```
 
+To select a different run choose one of 0-4 for each VADA training run, or 5 for a training run of VADA trained with
+the auxiliary regressor. For example:
+
+```
+python VADA_demo.py --run 3
+```
+
 ## Data
 The data that was used for training VADA is publicly available, to download follow instructions on [GitHub Repo](https://github.com/nanoporetech/bonito/).
 *Note: this download is ~30GB*
@@ -30,4 +37,4 @@ should be specified as follows:
 
 
 ## Training
-The model was trained using configurations that can be found in `configs/config_VADA.json`
+The model was trained using configurations that can be found in `configs/config_VADA_training.json`

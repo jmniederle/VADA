@@ -3,6 +3,7 @@ from src.datasets.data_util import restore_kmer_sequence
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import argparse
 
 
 def plot_real_generated_results(raw_nano, sample_nano, kmer_aligned=None, xlim=(200, 399.4)):
@@ -27,9 +28,14 @@ def plot_real_generated_results(raw_nano, sample_nano, kmer_aligned=None, xlim=(
     fig.savefig("demo_fig.png", dpi=350)
 
 
-def demo():
+def demo(run_id=0):
     # Load model
-    config_path = ('src/configs/config_VADA_loading.json')
+    if run_id <= 4:
+        config_path = f'src/configs/config_VADA_no_aux_{run_id}.json'
+
+    elif run_id == 5:
+        config_path = 'src/configs/config_VADA_with_aux.json'
+
     model = load_vada_checkpoint(config_path)
 
     # Load demo batch
@@ -51,4 +57,9 @@ def demo():
 
 
 if __name__ == "__main__":
-    demo()
+    parser = argparse.ArgumentParser(description="Run number")
+    parser.add_argument('--run', type=int, choices=range(6), default=0,
+                        help="An integer in range [0, 5] with a default of 0")
+
+    args = parser.parse_args()
+    demo(run_id=args.run)

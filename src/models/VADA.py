@@ -388,7 +388,6 @@ class r_y(nn.Module):
         return out
 
 
-# Or name it ADA, AVA?
 class VADA(nn.Module):
     """
     Variational Autoregressive DNA-conditioned Autoencoder
@@ -713,9 +712,6 @@ class VADA(nn.Module):
             x_prev = x_t
 
         return x_output
-
-
-
 
 
 if __name__ == "__main__":
