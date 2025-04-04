@@ -62,8 +62,8 @@ def demo(run_id=0):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run number")
-    parser.add_argument('--run', type=int, choices=range(16), default=0,
-                        help="An integer in range [0, 5] with a default of 0")
+    parser.add_argument('--run', type=int, choices=range(16), default=15,
+                        help="An integer in range [0, 15] with a default of 15")
 
     args = parser.parse_args()
     demo(run_id=args.run)
