@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import argparse
+import os
 
 
 def plot_real_generated_results(raw_nano, sample_nano, kmer_aligned=None, xlim=(200, 399.4)):
@@ -29,12 +30,15 @@ def plot_real_generated_results(raw_nano, sample_nano, kmer_aligned=None, xlim=(
 
 
 def demo(run_id=0):
-    # Load model
-    if run_id <= 4:
-        config_path = f'src/configs/config_VADA_no_aux_{run_id}.json'
+    # # Load model
+    # if run_id <= 4:
+    #     config_path = f'src/configs/config_VADA_no_aux_{run_id}.json'
 
-    elif run_id == 5:
-        config_path = 'src/configs/config_VADA_with_aux.json'
+    # elif run_id == 5:
+    #     config_path = 'src/configs/config_VADA_with_aux.json'
+    configs_base_path = 'src/configs/'
+    configs = sorted(os.listdir(configs_base_path))
+    config_path = os.path.join(configs_base_path, configs[run_id])
 
     model = load_vada_checkpoint(config_path)
 
@@ -58,8 +62,8 @@ def demo(run_id=0):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run number")
-    parser.add_argument('--run', type=int, choices=range(6), default=0,
-                        help="An integer in range [0, 5] with a default of 0")
+    parser.add_argument('--run', type=int, choices=range(16), default=15,
+                        help="An integer in range [0, 15] with a default of 15")
 
     args = parser.parse_args()
     demo(run_id=args.run)

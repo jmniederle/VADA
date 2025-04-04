@@ -1,10 +1,12 @@
+from typing import Union, Optional
+import random
+
 import torch.nn as nn
 import torch
 import torch.distributions as D
-import random
 import numpy as np
-# from torchinfo import summary
-from typing import Type
+
+from src.models import flow
 
 
 class e_y(nn.Module):
@@ -46,7 +48,7 @@ class q_z_y(nn.Module):
                  ):
         super().__init__()
 
-        activation = getattr(nn, activation) if type(activation) == str else activation
+        activation = getattr(nn, activation) if isinstance(activation, str) else activation
 
         # Number of resolutions
         n_resolutions = len(ch_mults)
@@ -56,7 +58,7 @@ class q_z_y(nn.Module):
                              f"choose different value.")
 
         if n_blocks == 0:
-            raise ValueError(f"n_blocks of encoder must be at least 1 for increasing channels")
+            raise ValueError("n_blocks of encoder must be at least 1 for increasing channels")
 
         n_channels_initial = int(h_dim / np.prod(ch_mults))
 
@@ -149,7 +151,7 @@ class p_z_y(nn.Module):
     def __init__(self, y_dim=64, h_dim=64, z_dim=64, n_layers=2, activation=nn.ReLU):
         super().__init__()
 
-        activation = getattr(nn, activation) if type(activation) == str else activation
+        activation = getattr(nn, activation) if isinstance(activation, str) else activation
 
         self.fc_net = nn.Sequential(
             nn.Linear(y_dim, h_dim),
@@ -175,6 +177,55 @@ class p_z_y(nn.Module):
         mu = self.mu_head(h)
         sigma = self.sigma_head(h)
         return D.MultivariateNormal(loc=mu, scale_tril=torch.diag_embed(sigma))
+    
+class p_z_y_flow(nn.Module):
+    """ 
+    Conditional prior which uses real NVP flow
+    """
+    def __init__(
+            self,
+            y_dim:int, 
+            h_dim:int, 
+            z_dim:int, 
+            n_embedding_layers:int,
+            n_flow_layers:int,
+            n_mlp_layers:int,
+            flow_hidden_size:int,
+            normalize_mlp_inputs:bool=True,
+            activation:Union[str, type[nn.Module]]=nn.CELU
+            ):
+        """ 
+        Args:
+            y_dim: number of dimensions of the embedding y
+            h_dim: hidden size of the first MLP that processes y
+            z_dim: dimensionality of the latent space
+            n_embedding_layers: number of layers used in the MLP that processes y
+            n_flow_layers: number of bijective layers used in the real NVP flow
+            n_mlp_layers: number of layers used in the mlps for the t- and s-nets in the NVP flow
+            flow_hidden_size: hidden size of the t- and s-nets
+            normalize_mlp_inputs: whether the input to the t- and s-net should be normalized using LayerNorm
+        """
+        super().__init__()
+        self.embedding_net = flow.get_mlp(
+            in_size=y_dim,
+            out_size=h_dim,
+            hidden_size=h_dim,
+            number_of_hidden_layers=n_embedding_layers-2,  # this is the convention in p_z_y, so we stick to it
+            activation=activation
+        )
+        self.flow_net = flow.ConditionalFlow.get_MLP_flow(
+            num_latent_dims=z_dim,
+            context_size=h_dim,
+            num_flow_layers=n_flow_layers,
+            num_hidden_layers=n_mlp_layers-2,  # this is the convention above, so we stick to it
+            hidden_size=flow_hidden_size,
+            normalize_mlp_inputs=normalize_mlp_inputs,
+            activation=activation
+        )
+    
+    def forward(self, y_t:torch.Tensor)->flow.ConditionedFlow:
+        context = self.embedding_net(y_t)
+        return self.flow_net(context)
 
 
 class ResidualBlock(nn.Module):
@@ -249,7 +300,7 @@ class Upsample(nn.Module):
 
     """
 
-    def __init__(self, n_channels: int, n_channels_out: [int, None] = None, **kwargs):
+    def __init__(self, n_channels: int, n_channels_out: Union[int, None] = None, **kwargs):
         super().__init__()
         if n_channels_out is None:
             n_channels_out = n_channels
@@ -265,7 +316,7 @@ class Upsample(nn.Module):
 class p_x_z(nn.Module):
     def __init__(self,
                  z_dim: int = 64,
-                 activation: nn.Module = nn.ReLU,
+                 activation: type[nn.Module] = nn.ReLU,
                  scale: float = 1 / np.sqrt(2),
                  h_dim: int = 64,
                  norm: bool = True,
@@ -276,7 +327,7 @@ class p_x_z(nn.Module):
                  ):
         super().__init__()
 
-        activation = getattr(nn, activation) if type(activation) == str else activation
+        activation = getattr(nn, activation) if isinstance(activation, str) else activation
 
         self.verbose = verbose
 
@@ -369,7 +420,7 @@ class r_y(nn.Module):
     def __init__(self, z_y_dim, y_dim, h_dim=64, n_layers=2, activation=nn.ReLU):
         super().__init__()
 
-        activation = getattr(nn, activation) if type(activation) == str else activation
+        activation = getattr(nn, activation) if isinstance(activation, str) else activation
 
         self.fc_net = nn.Sequential(
             nn.Linear(z_y_dim, h_dim),
@@ -410,29 +461,32 @@ class VADA(nn.Module):
         use_s_1_filter_decoder: use length 1 or length 3 (if False) conv filter to get correct number of out channels
         use_s_1_filter_encoder: use length 1 or length 3 (if False) conv filter to get correct number of in channels
         norm:
+        use_flow: whether to use flow for the p_z_y conditional prior
+        flow_kwargs: kwargs to be passed to p_z_y_flow if use_flow is True
 
     """
-    def __init__(self,
-                 y_emb_dim: int,
-                 x_pred_size: int,
-                 h_dim: int, z_dim: int,
-                 teacher_forcing_ratio: float = 1.0,
-                 beta_kl_y: float = 1.0,
-                 beta_reconstr: float = 1.0,
-                 beta_aux: float = 1.0,
-                 device: [str, torch.device] = 'cpu',
-                 activation: [str, nn.Module] = nn.ReLU,
-                 n_layers_prior: int = 2,
-                 n_blocks_encoder: int = 2,
-                 n_blocks_decoder: int = 2,
-                 n_layers_auxiliary: int = 2,
-                 use_s_1_filter_decoder: bool = True,
-                 use_s_1_filter_encoder: bool = True,
-                 norm: bool = True):
-        """
+    def __init__(
+            self,
+            y_emb_dim: int,
+            x_pred_size: int,
+            h_dim: int, z_dim: int,
+            teacher_forcing_ratio: float = 1.0,
+            beta_kl_y: float = 1.0,
+            beta_reconstr: float = 1.0,
+            beta_aux: float = 1.0,
+            device: Union[str, torch.device] = 'cpu',
+            activation: Union[str, nn.Module] = nn.ReLU,
+            n_layers_prior: int = 2,
+            n_blocks_encoder: int = 2,
+            n_blocks_decoder: int = 2,
+            n_layers_auxiliary: int = 2,
+            use_s_1_filter_decoder: bool = True,
+            use_s_1_filter_encoder: bool = True,
+            norm: bool = True,
+            use_flow: bool = False,
+            flow_kwargs: Optional[dict] = None,
+            ):
 
-
-        """
 
         # Embedding layer conditioning
         super().__init__()
@@ -446,15 +500,40 @@ class VADA(nn.Module):
         mults = [2 for _ in range(int(np.log2(x_pred_size)))]
 
         # Encoders
-        self.q_z_y = q_z_y(h_dim=h_dim, z_dim=z_dim, norm=norm, n_blocks=n_blocks_encoder,
-                           use_s_1_filter=use_s_1_filter_encoder, activation=activation, ch_mults=tuple(mults))
+        self.q_z_y = q_z_y(
+            h_dim=h_dim, 
+            z_dim=z_dim, 
+            norm=norm, 
+            n_blocks=n_blocks_encoder,
+            use_s_1_filter=use_s_1_filter_encoder, 
+            activation=activation, 
+            ch_mults=tuple(mults)
+            )
 
         # Priors
-        self.p_z_y = p_z_y(y_dim=y_emb_dim, h_dim=h_dim, z_dim=z_dim, n_layers=n_layers_prior, activation=activation)
+        self.use_flow = use_flow
+        if use_flow:
+            self.p_z_y = p_z_y_flow(
+                y_dim=y_emb_dim,
+                h_dim=h_dim,
+                z_dim=z_dim,
+                n_embedding_layers=n_layers_prior,
+                activation=activation,
+                **flow_kwargs
+            )
+        else:
+            self.p_z_y = p_z_y(y_dim=y_emb_dim, h_dim=h_dim, z_dim=z_dim, n_layers=n_layers_prior, activation=activation)
 
 
-        self.p_x_z = p_x_z(z_dim=z_dim, h_dim=h_dim, ch_mults=tuple(mults), norm=norm,
-                           n_blocks=n_blocks_decoder, use_s_1_filter=use_s_1_filter_decoder, activation=activation)
+        self.p_x_z = p_x_z(
+            z_dim=z_dim, 
+            h_dim=h_dim, 
+            ch_mults=tuple(mults), 
+            norm=norm,
+            n_blocks=n_blocks_decoder, 
+            use_s_1_filter=use_s_1_filter_decoder, 
+            activation=activation
+            )
 
         # Auxiliary Regressor
         self.r_y = r_y(z_y_dim=z_dim, y_dim=y_emb_dim, h_dim=h_dim, n_layers=n_layers_auxiliary, activation=activation)
@@ -551,7 +630,10 @@ class VADA(nn.Module):
 
         """
         # KL loss
-        dkl_z_y = D.kl.kl_divergence(z_y_encoding_dist, z_y_prior)
+        if self.use_flow:
+            dkl_z_y = z_y_encoding_dist.log_prob(z_y_sample) - z_y_prior.log_prob(z_y_sample)
+        else:
+            dkl_z_y = D.kl.kl_divergence(z_y_encoding_dist, z_y_prior)
 
         # Reconstruction
         reconstruction_loss = -x_t_decoding_dist.log_prob(x_t).mean(1)  # mean over prediction window
@@ -658,31 +740,35 @@ class VADA(nn.Module):
 
         return total_loss, reconstr, kl_z_y, aux
 
-    def encode_and_split_seq(self, x, y):
+    def encode_and_split_seq(self, x, y=None):
         x_prev = torch.roll(x, shifts=self.x_pred_size, dims=1)
         x_prev[:, 0:self.x_pred_size] = 0
 
         x_chunks = torch.split(x, self.x_pred_size, dim=1)
-        y_chunks = torch.split(y, self.x_pred_size, dim=1)
 
         # Drop the last window if it's not completely filled
         if x_chunks[-1].shape[1] != self.x_pred_size:
-            x_chunks = x_chunks[:-1]
-            y_chunks = y_chunks[:-1]
+            x_chunks = x_chunks[:-1] 
 
         # Shape: [batch_size, num_chunks, pred_size]
         x_t_w = torch.stack(x_chunks).swapaxes(0, 1)
-        y_t_w = torch.stack(y_chunks).swapaxes(0, 1)
 
         batch_size, num_chunks = x_t_w.shape[0], x_t_w.shape[1]
 
         # Reshape tensors to [batch_size * num_chunks, pred_size], such that conv decoder_net can deal with the input
         x_t_w = x_t_w.reshape(batch_size * num_chunks, self.x_pred_size)
-        y_t_w = y_t_w.reshape(batch_size * num_chunks, self.x_pred_size)
+        
 
         z_y_dist = self.encode(x_t_w)
         z_y = z_y_dist.sample()
         # z_y.reshape(batch_size, num_chunks, self.x_pred_size)
+
+        y_t_w = None
+        if y is not None:
+            y_chunks = torch.split(y, self.x_pred_size, dim=1)
+            y_chunks = y_chunks[:-1]
+            y_t_w = torch.stack(y_chunks).swapaxes(0, 1)
+            y_t_w = y_t_w.reshape(batch_size * num_chunks, self.x_pred_size)
         return z_y, y_t_w
 
     def sample(self, y):
@@ -712,7 +798,3 @@ class VADA(nn.Module):
             x_prev = x_t
 
         return x_output
-
-
-if __name__ == "__main__":
-    pass
